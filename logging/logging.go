@@ -1,5 +1,5 @@
 package logging
-// poor man's leveled loPger
+// poor man's leveled logger
 
 import (
     "log"

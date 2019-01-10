@@ -7,7 +7,7 @@ import (
     "bytes"
     "container/heap"
 
-    "github.com/egoossaert/compression/logging"
+    "github.com/goossaert/compression/logging"
     "github.com/dgryski/go-bitstream"
 )
 
@@ -17,12 +17,12 @@ type HNode struct {
     left *HNode
     right *HNode
     frequency int
-    dict *map[byte]bool
+    dict map[byte]bool
 }
 
 func (hnode *HNode) Byte() byte {
     var k byte
-    for k = range *hnode.dict {
+    for k = range hnode.dict {
         break
     }
     return k
@@ -41,7 +41,7 @@ func (hm *HTree) PrintTree(node *HNode, side string, symbols []byte) {
     }
 
     var chars bytes.Buffer
-    for k := range *node.dict {
+    for k := range node.dict {
         chars.WriteString(fmt.Sprintf("%s", string(k)))
     }
 
@@ -99,7 +99,7 @@ func BuildHTree(reader io.Reader) *HTree {
     for character, frequency := range freqs {
         dict := make(map[byte]bool)
         dict[character] = true
-        node := HNode{nil, nil, nil, frequency, &dict}
+        node := HNode{nil, nil, nil, frequency, dict}
         pq[i] = &PQItem{
                 hnode: &node,
                 index: i,
@@ -113,10 +113,10 @@ func BuildHTree(reader io.Reader) *HTree {
         item1 := heap.Pop(&pq).(*PQItem)
         item2 := heap.Pop(&pq).(*PQItem)
         dict := make(map[byte]bool)
-        for k, _ := range *item1.hnode.dict {
+        for k := range item1.hnode.dict {
             dict[k] = true
         }
-        for k, _ := range *item2.hnode.dict {
+        for k := range item2.hnode.dict {
             dict[k] = true
         }
         node := &HNode{
@@ -124,7 +124,7 @@ func BuildHTree(reader io.Reader) *HTree {
             item1.hnode,
             item2.hnode,
             item1.hnode.frequency + item2.hnode.frequency,
-            &dict }
+            dict }
         item1.hnode.parent = node
         item2.hnode.parent = node
 
