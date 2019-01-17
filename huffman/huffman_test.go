@@ -29,14 +29,8 @@ func TestSingleString(t *testing.T) {
 
     decodedData := htree.DecodeBytes(*encodedData, nbits)
 
-    if len(originalData) != len(*decodedData) {
-        t.Errorf("Compression failed, mismatch on len(): %d vs. %d", len(originalData), len(*decodedData))
-    }
-
-    for i := 0 ; i < len(originalData) ; i++ {
-        if originalData[i] != (*decodedData)[i] {
-            t.Errorf("Compression failed")
-        }
+    if bytes.Equal([]byte(originalData), *decodedData) == false {
+        t.Errorf("Compression failed")
     }
 }
 
@@ -55,14 +49,7 @@ func TestAllAlphabet(t *testing.T) {
 
     decodedData := htree.DecodeBytes(*encodedData, nbits)
 
-    if len(originalData) != len(*decodedData) {
-        t.Errorf("Compression failed, mismatch on len(): %d vs. %d", len(originalData), len(*decodedData))
+    if bytes.Equal([]byte(originalData), *decodedData) == false {
+        t.Errorf("Compression failed")
     }
-
-    for i := 0 ; i < len(originalData) ; i++ {
-        if originalData[i] != (*decodedData)[i] {
-            t.Errorf("Compression failed")
-        }
-    }
-
 }
