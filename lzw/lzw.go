@@ -24,7 +24,7 @@ func Compress(rawData io.Reader) (compressedData *[]byte, nbits int) {
     readBuffer := make([]byte, 1024)
     outputBytes := make([]byte, 2)
     nbits = 0
-    window := make([]byte, 0)
+    var window []byte
     for {
         n, err := rawData.Read(readBuffer)
         if err == io.EOF {
@@ -62,7 +62,7 @@ func Compress(rawData io.Reader) (compressedData *[]byte, nbits int) {
 
 
 func Uncompress(compressedData io.Reader, nbits int) (uncompressedData *[]byte) {
-    out := make([]byte, 0)
+    var out []byte
     logging.Trace.Printf("Uncompress()\n")
     codesToStrings := make(map[uint16]string)
     for i := 0 ; i < 256 ; i++ {

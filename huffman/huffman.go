@@ -137,7 +137,7 @@ func BuildHTree(reader io.Reader) *HTree {
     // 4. Creates bit encoding for every byte in the tree,
     // and stores it into a dictionary
     dictionary := make(map[byte]Transcode)
-    stack := make([]*HNode, 0)
+    var stack []*HNode
     stack = append(stack, htree.root)
 
     for len(stack) > 0 {
@@ -155,7 +155,7 @@ func BuildHTree(reader io.Reader) *HTree {
         }
 
         // Walks up the parent path, and store the reverse path
-        path := make([]uint32, 0)
+        var path []uint32
         nodePath := node
         for {
             if nodePath.parent == nil {
