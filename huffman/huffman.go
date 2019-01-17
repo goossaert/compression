@@ -220,7 +220,7 @@ func (htree *HTree) EncodeBytes(reader io.Reader) (encodedData *[]byte, nbits in
     }
     bw.Flush(bitstream.Zero)
 
-    out := make([]byte, 0)
+    var out []byte
     for {
         b, err := buf.ReadByte()
         if err == io.EOF {
@@ -237,7 +237,7 @@ func (htree *HTree) EncodeBytes(reader io.Reader) (encodedData *[]byte, nbits in
 
 func (htree *HTree) DecodeBytes(encodedData []byte, nbits int) *[]byte {
     br := bitstream.NewReader(bytes.NewReader(encodedData))
-    out := make([]byte, 0)
+    var out []byte
     isNewChunk := true
     bitsConsumed := 0
     var node *HNode = nil
