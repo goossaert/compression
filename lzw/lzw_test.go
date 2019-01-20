@@ -27,5 +27,14 @@ func TestSingleString(t *testing.T) {
     }
 }
 
-func TestSpecialCase(t *testing.T) {
+func BenchmarkString(b *testing.B) {
+    originalData := "Hello World! I really like to say Hello to this World!"
+
+    for i := 0 ; i < b.N ; i++ {
+        r := strings.NewReader(originalData)
+        encodedData, nbits := Compress(r)
+
+        r2 := bytes.NewReader(*encodedData)
+        Uncompress(r2, nbits)
+    }
 }

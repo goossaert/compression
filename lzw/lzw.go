@@ -48,7 +48,7 @@ func Compress(rawData io.Reader) (compressedData *[]byte, nbits int) {
             nextCode += 1
             outputCode := stringsToCodes[string(window[:len(window)-1])]
             logging.Trace.Printf("ENC %s => %d\n", string(window[:len(window)-1]), outputCode)
-            binary.LittleEndian.PutUint16(outputBytes, uint16(outputCode))
+            binary.LittleEndian.PutUint16(outputBytes, outputCode)
             out = append(out, outputBytes...)
             nbits += 16
 

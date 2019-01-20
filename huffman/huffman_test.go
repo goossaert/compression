@@ -34,6 +34,23 @@ func TestSingleString(t *testing.T) {
     }
 }
 
+
+func BenchmarkSingleString(b *testing.B) {
+    originalData := "Hello World!"
+
+    for i := 0 ; i < b.N ; i++ {
+        r := strings.NewReader(originalData)
+        htree := BuildHTree(r)
+        htree.Print()
+
+        r2 := strings.NewReader(originalData)
+        encodedData, nbits := htree.EncodeBytes(r2)
+        htree.DecodeBytes(*encodedData, nbits)
+    }
+
+}
+
+
 func TestAllAlphabet(t *testing.T) {
     originalData := make([]byte, 256, 256)
     for i := 0 ; i < 256 ; i++ {
