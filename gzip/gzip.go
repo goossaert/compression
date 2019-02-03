@@ -57,7 +57,7 @@ type GzipHeader struct {
 
 func WriteGzipNoCompression(w io.Writer, data []byte) (err error) {
     if len(data) > MaxBlockSizeNoCompress {
-        return errors.New(fmt.Sprintf("Doest not support streams above %d bytes\n", MaxBlockSizeNoCompress))
+        return errors.New(fmt.Sprintf("Doesn't not support streams above %d bytes\n", MaxBlockSizeNoCompress))
     }
 
     gzipHeader := make([]byte, 10)
@@ -70,11 +70,10 @@ func WriteGzipNoCompression(w io.Writer, data []byte) (err error) {
     gzipHeader[9] = 255 // Operating System - 255 means Unknown
 
     // Deflate mode 0 header
-    deflateHeader := make([]byte, 1)
+    deflateHeader := make([]byte, 5)
     deflateHeader[0] = 1 // first three bits are 100, stored with least-significant bits first
-    deflateSizes := make([]byte, 4)
-    binary.LittleEndian.PutUint16(deflateSizes[0:2], uint16(len(data)))
-    binary.LittleEndian.PutUint16(deflateSizes[2:4], uint16(^len(data)))
+    binary.LittleEndian.PutUint16(deflateHeader[1:3], uint16(len(data)))
+    binary.LittleEndian.PutUint16(deflateHeader[3:5], uint16(^len(data)))
 
     var checksum uint32 = 0
     checksum = crc32.Update(checksum, crc32.IEEETable, data)
@@ -87,10 +86,6 @@ func WriteGzipNoCompression(w io.Writer, data []byte) (err error) {
     }
 
     if _, err = w.Write(deflateHeader); err != nil {
-        return err
-    }
-
-    if _, err = w.Write(deflateSizes); err != nil {
         return err
     }
 
