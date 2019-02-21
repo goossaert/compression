@@ -57,7 +57,7 @@ type GzipHeader struct {
 
 func WriteGzipNoCompression(w io.Writer, data []byte) (err error) {
     if len(data) > MaxBlockSizeNoCompress {
-        return errors.New(fmt.Sprintf("Doesn't not support streams above %d bytes\n", MaxBlockSizeNoCompress))
+        return errors.New(fmt.Sprintf("Doesn't support streams above %d bytes\n", MaxBlockSizeNoCompress))
     }
 
     gzipHeader := make([]byte, 10)
