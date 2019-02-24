@@ -23,6 +23,10 @@ func NewReadBuffer(reader io.Reader, bufferSize int) *ReadBuffer {
     return rb
 }
 
+func (rb *ReadBuffer) BitsLeftToRead() int {
+    return (rb.numBytesLoaded - rb.index) * 8 + rb.bitPosition
+}
+
 func (rb *ReadBuffer) LoadMoreBytes() error {
     var numBytesRemaining = rb.numBytesLoaded - rb.index
     copy(rb.buf[0:numBytesRemaining], rb.buf[rb.index:rb.index+numBytesRemaining])
@@ -55,10 +59,10 @@ func (rb *ReadBuffer) ReadBit() (bool, error) {
     }
 }
 
-func (rb *ReadBuffer) Rewind(n int) error {
-    bitIndex := rb.index * 8 + rb.bitPosition - n
+func (rb *ReadBuffer) Rewind(n uint) error {
+    bitIndex := rb.index * 8 + rb.bitPosition - int(n)
     if bitIndex < 0 {
-        return errors.New("The input argument specified a number of bits to rewind that is too large.")
+        return errors.New("Number of bits to rewind is too large: cannot rewind to a position before the start of the buffer.")
     }
     rb.index = int(bitIndex / 8)
     rb.bitPosition = bitIndex % 8
@@ -96,14 +100,4 @@ func (p *Prefix) ReadBit(rb *ReadBuffer) error {
 
     return nil
 }
-
-
-
-
-
-
-
-
-
-
 
