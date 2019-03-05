@@ -71,7 +71,7 @@ func (rb *ReadBuffer) Rewind(n uint) error {
 
 
 type Prefix struct {
-    bits uint32
+    data uint32
     index int
 }
 
@@ -82,7 +82,7 @@ func NewPrefix() *Prefix {
 }
 
 func (p *Prefix) Reset() {
-    p.bits = 0
+    p.data = 0
     p.index = 0
 }
 
@@ -94,10 +94,32 @@ func (p *Prefix) ReadBit(rb *ReadBuffer) error {
     if bit, err := rb.ReadBit(); err != nil {
         return err
     } else if bit == true {
-        p.bits &= 1 << uint(31 - p.index)
+        p.data &= 1 << uint(31 - p.index)
     }
     p.index += 1
 
     return nil
 }
 
+func BytesToUint64(array []byte, bitOffset int) uint64{
+    var out uint64 = 0
+    if len(array) < 8 || len(array) > 9 {
+        panic("Invalid slice size")
+    }
+
+    out = (uint64(array[0]) << 56) |
+          (uint64(array[1]) << 48) |
+          (uint64(array[2]) << 40) |
+          (uint64(array[3]) << 32) |
+          (uint64(array[4]) << 24) |
+          (uint64(array[5]) << 16) |
+          (uint64(array[6]) <<  8) |
+          (uint64(array[7]))
+    out = out << uint(bitOffset)
+
+    if len(array) > 8 {
+        out = out | (uint64(array[8]) >> uint(8-bitOffset))
+    }
+
+    return out
+}
