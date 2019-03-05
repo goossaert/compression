@@ -3,6 +3,7 @@ package deflate
 import (
     "testing"
     "strconv"
+    //"fmt"
 )
 
 func TestGenerateCanonicalPrefixes(t *testing.T) {
@@ -18,24 +19,8 @@ func TestGenerateCanonicalPrefixes(t *testing.T) {
 }
 
 func TestGeneratorCanonicalPrefixesMode2(t *testing.T) {
-    seq := make([]int, 288)
-    for i := 0; i < 144; i++ {
-        seq[i] = 8
-    }
-
-    for i := 144; i < 144+112; i++ {
-        seq[i] = 9
-    }
-
-    for i := 144+112; i < 144+112+24; i++ {
-        seq[i] = 7
-    }
-
-    for i := 144+112+24; i < 144+112+24+8; i++ {
-        seq[i] = 8
-    }
-
-    codes := GenerateCanonicalPrefixes(seq)
+    litLenSequence := GenerateMode2LitLenSequence()
+    codes := GenerateCanonicalPrefixes(litLenSequence)
     if len(codes) != 288 {
         t.Errorf("The generated code table has an invalid length, expected 288 and found %d", len(codes));
     }
@@ -63,3 +48,14 @@ func TestGeneratorCanonicalPrefixesMode2(t *testing.T) {
     }
     */
 }
+
+
+func TestStuff(t *testing.T) {
+   litLenSequence := GenerateMode2LitLenSequence()
+   distanceSequence := GenerateMode2DistanceSequence()
+   NewTranslator(litLenSequence, distanceSequence)
+   //tr := NewTranslator(litLenSequence, distanceSequence)
+   //fmt.Printf("%#v\n", tr)
+}
+
+
