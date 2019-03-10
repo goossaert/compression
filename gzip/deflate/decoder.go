@@ -7,10 +7,17 @@ import (
 
 type translationItem struct {
     code int
-    extraBit int
+    numExtraBits int
     minRange int
     maxRange int
 }
+
+const (
+    DeflateNoCompression = 0
+    DeflateFixed = 1
+    DeflateDynamic = 2
+    DeflateReserved = 3
+)
 
 var latLenTable = []translationItem{
                     {257, 0,   3,   3},
@@ -77,6 +84,21 @@ var distanceTable = []translationItem{
                     {29, 13, 24577, 32768},
                 }
 
+func generateUint64BitMasks() ([]uint64, []uint64) {
+    leftBitMasks := make([]uint64, 65)
+    rightBitMasks := make([]uint64, 65)
+
+    leftBitMasks[0] = 0
+    rightBitMasks[0] = 0
+
+    for i := 1; i <= 64; i++ {
+        leftBitMasks[i] = uint64(0xFFFFFFFF) << uint(64-i)
+        rightBitMasks[i] = uint64(0xFFFFFFFF) >> uint(64-i)
+    }
+
+    return leftBitMasks, rightBitMasks
+}
+
 
 func GenerateMode2LitLenSequence() []int {
     seq := make([]int, 288)
@@ -109,15 +131,29 @@ func GenerateMode2DistanceSequence() []int {
 }
 
 
-func GenerateCanonicalPrefixes(codeLengths []int) ([]uint32) {
-    // Port of Peter Deutsch's original C function from RFC1951
+func GetMinMaxSlice(s []int) (int, int) {
+    if len(s) == 0 {
+        return 0, 0
+    }
 
-    maxCodeLength := 0
-    for _, codeLength := range codeLengths {
-        if codeLength > maxCodeLength {
-            maxCodeLength = codeLength
+    min, max := s[0], s[0]
+    for i := 1; i < len(s); i++ {
+        if s[i] > max {
+            max = s[i]
+        }
+        if s[i] < min {
+            min = s[i]
         }
     }
+
+    return min, max
+}
+
+
+func GenerateCanonicalPrefixes(codeLengths []int) ([]uint64) {
+    // Port of Peter Deutsch's original C function from RFC1951
+
+    _, maxCodeLength := GetMinMaxSlice(codeLengths)
 
     blCount := make([]int, maxCodeLength+1)
     for _, codeLength := range codeLengths {
@@ -132,10 +168,10 @@ func GenerateCanonicalPrefixes(codeLengths []int) ([]uint32) {
         nextCode[bits] = code
     }
 
-    codes := make([]uint32, len(codeLengths))
+    codes := make([]uint64, len(codeLengths))
     for i, codeLength := range codeLengths {
         if codeLength > 0 {
-            codes[i] = uint32(nextCode[codeLength]) << uint(32-codeLength)
+            codes[i] = uint64(nextCode[codeLength]) << uint(64-codeLength)
             nextCode[codeLength] += 1
         }
     }
@@ -145,72 +181,176 @@ func GenerateCanonicalPrefixes(codeLengths []int) ([]uint32) {
 
 
 type Translator struct {
-    litLenDecodingTables map[int](map[uint32]translationItem)
+    litLenDecodingTables map[int](map[uint64]translationItem)
     litLenMinBits int
     litLenMaxBits int
-    distanceDecodingTables map[int](map[uint32]translationItem)
+    distanceDecodingTables map[int](map[uint64]translationItem)
     distanceMinBits int
     distanceMaxBits int
+    leftBitMasks []uint64
+    rightBitMasks []uint64
 }
 
 func NewTranslator(litLenSeq []int, distanceSeq []int) *Translator {
     t := new(Translator)
 
     // Generates hash tables to translate prefixes to literals/lengths
-    t.litLenDecodingTables = make(map[int](map[uint32]translationItem))
+    t.litLenDecodingTables = make(map[int](map[uint64]translationItem))
     litLenCodes := GenerateCanonicalPrefixes(litLenSeq)
+    t.litLenMinBits, t.litLenMaxBits = GetMinMaxSlice(litLenSeq)
+
+    for i := t.litLenMinBits; i <= t.litLenMaxBits; i++ {
+        t.litLenDecodingTables[i] = make(map[uint64]translationItem)
+    }
 
     for i := 0; i <= 256; i++ {
         numBits := litLenSeq[i]
-        if _, ok := t.litLenDecodingTables[numBits]; !ok {
-            t.litLenDecodingTables[numBits] = make(map[uint32]translationItem)
-        }
+        //if _, ok := t.litLenDecodingTables[numBits]; !ok {
+        //    t.litLenDecodingTables[numBits] = make(map[uint64]translationItem)
+        //}
         t.litLenDecodingTables[numBits][litLenCodes[i]] = translationItem{i, 0, 0, 0}
     }
 
     for i := 0; i < len(latLenTable); i++ {
         numBits := litLenSeq[i+257]
-        if _, ok := t.litLenDecodingTables[numBits]; !ok {
-            t.litLenDecodingTables[numBits] = make(map[uint32]translationItem)
-        }
+        //if _, ok := t.litLenDecodingTables[numBits]; !ok {
+        //    t.litLenDecodingTables[numBits] = make(map[uint64]translationItem)
+        //}
         t.litLenDecodingTables[numBits][litLenCodes[i+257]] = latLenTable[i]
     }
 
     // Generates hash table to translate prefixes to distances
-    t.distanceDecodingTables = make(map[int](map[uint32]translationItem))
-    t.distanceDecodingTables[5] = make(map[uint32]translationItem)
+    t.distanceDecodingTables = make(map[int](map[uint64]translationItem))
+    t.distanceDecodingTables[5] = make(map[uint64]translationItem)
     distanceCodes := GenerateCanonicalPrefixes(distanceSeq)
     for i := 0; i < len(distanceTable); i++ {
         t.distanceDecodingTables[5][distanceCodes[i]] = distanceTable[i]
     }
+    t.distanceMinBits = 5
+    t.distanceMaxBits = 5
+
+    // Generate bit masks
+    t.leftBitMasks, t.rightBitMasks = generateUint64BitMasks()
 
     return t
 }
 
 
-func (t *Translator) decodePrefix(prefix *Prefix) (numBitsRead, matchType, litLen, distance int) {
-    return 0, 1, 0, 0
+func (t *Translator) decodePrefix(prefix uint64) (numBitsRead uint, litLen, distance int, err error) {
+    numBitsRead = 0
+    litLen = 0
+    distance = 0
+    litLenFound := false
+    for numBits := t.litLenMinBits; numBits <= t.litLenMaxBits; numBits++ {
+        maskedPrefix := prefix & t.leftBitMasks[numBits]
+        if item, ok := t.litLenDecodingTables[numBits][maskedPrefix]; ok {
+            litLenFound = true
+            if item.code <= 256 {
+                litLen = item.code
+            } else {
+                extraBits := int((prefix >> uint(64 - numBits - item.numExtraBits)) & t.rightBitMasks[item.numExtraBits])
+                litLen = item.minRange + extraBits
+            }
+            numBitsRead += uint(numBits + item.numExtraBits)
+            break
+        }
+    }
+
+    if litLenFound == false {
+        // Invalid input data
+    }
+
+    if litLen <= 256 {
+        return numBitsRead, litLen, 0, nil
+    }
+
+    prefix = prefix << numBitsRead
+    distanceFound := false
+    for numBits := t.distanceMinBits; numBits <= t.distanceMaxBits; numBits++ {
+        maskedPrefix := prefix & t.leftBitMasks[numBits]
+        if item, ok := t.distanceDecodingTables[numBits][maskedPrefix]; ok {
+            distanceFound = true
+            extraBits := int((prefix >> uint(64 - numBits - item.numExtraBits)) & t.rightBitMasks[item.numExtraBits])
+            distance = item.minRange + extraBits
+            numBitsRead += uint(numBits + item.numExtraBits)
+            break
+        }
+    }
+
+    if distanceFound == false {
+        // Invalid input data
+    }
+
+    return numBitsRead, litLen, distance, nil
 }
 
 
-func decodeStream(reader io.Reader, writer io.Writer) {
+func DecodeStream(reader io.Reader, writer io.Writer) {
 
-    litLenSequence := GenerateMode2LitLenSequence()
-    distanceSequence := GenerateMode2DistanceSequence()
-    NewTranslator(litLenSequence, distanceSequence)
-
-    /*
     rb := NewReadBuffer(reader, 4096)
-    isValid := true
-    for isValid {
-        if rb.BitsLeftToRead() < 32 {
-            if err := rb.LoadMoreBytes(); err != nil {
-                //
-            }
-        }
+    wb := NewWriteBuffer(writer, 32768)
 
-        rb.ReadBit()
+    var prefix uint64
+    var err error
+
+    isLastBlock := false
+
+    for !isLastBlock {
+        // Read Deflate block header
+        if prefix, err = rb.Peek(); err != nil {
+            //
+        }
+        if int(prefix >> 63) == 1 {
+            isLastBlock = true
+        }
+        var compressionMode int = int(prefix >> 61) & 0x3
+        rb.Forward(3)
+
+        // Decodes data based on compression mode
+        if compressionMode == DeflateNoCompression {
+            // 
+        } else if compressionMode == DeflateReserved {
+            //
+        } else {
+            var translator *Translator
+            if compressionMode == DeflateFixed {
+                litLenSequence := GenerateMode2LitLenSequence()
+                distanceSequence := GenerateMode2DistanceSequence()
+                translator = NewTranslator(litLenSequence, distanceSequence)
+            } else if compressionMode == DeflateDynamic {
+                // 
+            }
+
+            hasMoreData := true
+            for hasMoreData {
+                if rb.BitsLeftToRead() < 64 {
+                    if err = rb.LoadMoreBytes(); err != nil {
+                        //
+                    }
+                }
+
+                if prefix, err = rb.Peek(); err != nil {
+                    //
+                }
+
+                numBitsRead, litLen, distance, err := translator.decodePrefix(prefix)
+                if err != nil {
+                    //
+                }
+
+                if litLen == 256 {
+                    hasMoreData = false
+                } else if litLen < 256 {
+                    wb.WriteByte(byte(litLen))
+                } else {
+                    wb.RepeatBytes(distance, litLen)
+                }
+
+                rb.Forward(numBitsRead)
+            }
+
+            wb.Flush()
+        }
     }
-    */
 }
 

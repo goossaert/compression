@@ -87,19 +87,24 @@ func TestRewind(t *testing.T) {
 
 func TestBytesToUint64(t *testing.T) {
     rand.Seed(3)
-    array := make([]byte, 9)
-    var buffer bytes.Buffer
-    for i := 0; i < 9; i++ {
-        array[i] = byte(rand.Int())
-        buffer.WriteString(fmt.Sprintf("%0*s", 8, strconv.FormatUint(uint64(array[i]), 2)))
-    }
-    originalString := buffer.String()
+    for numBytes := 1; numBytes <= 9; numBytes++ {
+        array := make([]byte, 9)
+        var buffer bytes.Buffer
+        for i := 0; i < numBytes; i++ {
+            array[i] = byte(rand.Int())
+            buffer.WriteString(fmt.Sprintf("%0*s", 8, strconv.FormatUint(uint64(array[i]), 2)))
+        }
+        for i := numBytes; i < 9; i++ {
+            buffer.WriteString("00000000")
+        }
+        originalString := buffer.String()
 
-    for i := 0; i <= 8; i++ {
-        converted := BytesToUint64(array, i)
-        targetString := fmt.Sprintf("%0*s", 64, strconv.FormatUint(converted, 2))
-        if bytes.Equal([]byte(originalString[i:64+i]), []byte(targetString)) == false {
-            t.Errorf("Failed to convert byte slice to uint64:\n%s\n%s\n", originalString[i:64+i], targetString)
+        for i := 0; i <= 8; i++ {
+            converted := BytesToUint64(array, i)
+            targetString := fmt.Sprintf("%0*s", 64, strconv.FormatUint(converted, 2))
+            if bytes.Equal([]byte(originalString[i:64+i]), []byte(targetString)) == false {
+                t.Errorf("Failed to convert byte slice to uint64:\n%s\n%s\n", originalString[i:64+i], targetString)
+            }
         }
     }
 }

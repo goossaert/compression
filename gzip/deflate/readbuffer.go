@@ -59,6 +59,30 @@ func (rb *ReadBuffer) ReadBit() (bool, error) {
     }
 }
 
+func (rb *ReadBuffer) Peek() (uint64, error) {
+    if rb.index >= rb.numBytesLoaded {
+        return 0, errors.New("Index is out of bound.")
+    }
+    indexEnd := rb.index + 9
+    if indexEnd > rb.numBytesLoaded {
+        indexEnd = rb.numBytesLoaded
+    }
+
+    return BytesToUint64(rb.buf[rb.index:indexEnd], rb.bitPosition), nil
+}
+
+
+func (rb *ReadBuffer) Forward(n uint) error {
+    bitIndex := rb.index * 8 + rb.bitPosition + int(n)
+    if bitIndex > rb.numBytesLoaded {
+        return errors.New("Number of bits to forward is too large: cannot forward to a position after the end of the buffer.")
+    }
+    rb.index = int(bitIndex / 8)
+    rb.bitPosition = bitIndex % 8
+    return nil
+}
+
+
 func (rb *ReadBuffer) Rewind(n uint) error {
     bitIndex := rb.index * 8 + rb.bitPosition - int(n)
     if bitIndex < 0 {
@@ -103,8 +127,14 @@ func (p *Prefix) ReadBit(rb *ReadBuffer) error {
 
 func BytesToUint64(array []byte, bitOffset int) uint64{
     var out uint64 = 0
-    if len(array) < 8 || len(array) > 9 {
+    if len(array) < 8 {
+        array = append(array, make([]byte, 8-len(array))...)
+    }
+    if len(array) > 9 {
         panic("Invalid slice size")
+    }
+    if bitOffset > 8 {
+        panic("Invalid bitOffset size")
     }
 
     out = (uint64(array[0]) << 56) |
@@ -117,7 +147,7 @@ func BytesToUint64(array []byte, bitOffset int) uint64{
           (uint64(array[7]))
     out = out << uint(bitOffset)
 
-    if len(array) > 8 {
+    if len(array) > 8 && bitOffset > 0 {
         out = out | (uint64(array[8]) >> uint(8-bitOffset))
     }
 
