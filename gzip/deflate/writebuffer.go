@@ -2,21 +2,22 @@ package deflate
 
 import (
     "io"
+    "fmt"
 )
 
 type WriteBuffer struct {
-    buf []byte
     writer io.Writer
+    buf []byte
     index int
     baseSize int
 }
 
 func NewWriteBuffer(writer io.Writer, baseSize int) *WriteBuffer {
     wb := new(WriteBuffer)
+    wb.writer = writer
     wb.buf = make([]byte, baseSize*3)
     wb.baseSize = baseSize
     wb.index = 0
-    wb.writer = writer
     return wb
 }
 
@@ -26,7 +27,22 @@ func (wb *WriteBuffer) WriteByte(b byte) {
     wb.index += 1
 }
 
+func (wb *WriteBuffer) WriteBytes(source []byte) {
+    i := 0;
+    for i < len(source) {
+        wb.rotateIfNeeded()
+        step := wb.baseSize
+        if i + step > len(source) {
+            step = len(source) - i
+        }
+        copy(wb.buf[wb.index:wb.index+step], source[i:i+step])
+        wb.index += step
+        i += step
+    }
+}
+
 func (wb *WriteBuffer) RepeatBytes(length int, distance int) {
+    fmt.Printf("WB.RepeatBytes() %d %d\n", length, distance)
     wb.rotateIfNeeded()
     copy(wb.buf[wb.index:wb.index+length], wb.buf[wb.index-distance:wb.index-distance+length])
     wb.index += length
@@ -45,7 +61,7 @@ func (wb *WriteBuffer) rotateIfNeeded() {
         if _, err := wb.writer.Write(wb.buf[:wb.baseSize]); err != nil {
             //panic
         }
-        copy(wb.buf[:wb.baseSize*2], wb.buf[wb.baseSize:wb.baseSize*3])
+        copy(wb.buf[:wb.index-wb.baseSize], wb.buf[wb.baseSize:wb.index])
         wb.index -= wb.baseSize
     }
 }

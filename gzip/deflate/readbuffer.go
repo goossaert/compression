@@ -3,6 +3,8 @@ package deflate
 import (
     "io"
     "errors"
+    "math/bits"
+    "fmt"
 )
 
 type ReadBuffer struct {
@@ -19,12 +21,13 @@ func NewReadBuffer(reader io.Reader, bufferSize int) *ReadBuffer {
     rb.reader = reader
     rb.numBytesLoaded = 0
     rb.index = 0
-    rb.bitPosition = 0 // position of bit inside the byte at index 'rb.index', from the MSB
+    rb.bitPosition = 0 // Position of bit inside the byte at index 'rb.index',
+                       // from the most-signifiant bit to the least-significant bit.
     return rb
 }
 
 func (rb *ReadBuffer) BitsLeftToRead() int {
-    return (rb.numBytesLoaded - rb.index) * 8 + rb.bitPosition
+    return rb.numBytesLoaded * 8 - (rb.index * 8 + rb.bitPosition)
 }
 
 func (rb *ReadBuffer) LoadMoreBytes() error {
@@ -41,6 +44,7 @@ func (rb *ReadBuffer) LoadMoreBytes() error {
     }
 }
 
+/*
 func (rb *ReadBuffer) ReadBit() (bool, error) {
     if rb.index >= rb.numBytesLoaded {
         return false, errors.New("Index is out of bound.")
@@ -58,8 +62,39 @@ func (rb *ReadBuffer) ReadBit() (bool, error) {
         return true, nil
     }
 }
+*/
+
+func (rb *ReadBuffer) ReadAlignedByte() (byte, error) {
+    fmt.Printf("RB.ReadAlignedByte() index %d, bitPosition %d, numBytesLoaded %d\n", rb.index, rb.bitPosition, rb.numBytesLoaded)
+    if rb.index >= rb.numBytesLoaded {
+        return 0, errors.New("Index is out of bound.")
+    }
+    rb.bitPosition = 0
+    out := rb.buf[rb.index]
+    rb.index += 1
+    return out, nil
+}
+
+
+func (rb *ReadBuffer) ReadAlignedBytes(n int) ([]byte, int, error) {
+    fmt.Printf("RB.ReadAlignedBytes() index %d, bitPosition %d, numBytesLoaded %d\n", rb.index, rb.bitPosition, rb.numBytesLoaded)
+    if rb.index >= rb.numBytesLoaded {
+        return nil, 0, errors.New("Index is out of bound.")
+    }
+    rb.bitPosition = 0
+    numBytesRemaining := rb.numBytesLoaded - rb.index
+    if numBytesRemaining < n {
+        n = numBytesRemaining
+    }
+    out := make([]byte, n)
+    copy(out, rb.buf[rb.index:rb.index+n])
+    rb.index += n
+    return out, n, nil
+}
+
 
 func (rb *ReadBuffer) Peek() (uint64, error) {
+    fmt.Printf("RB.Peek() index %d, bitPosition %d, numBytesLoaded %d\n", rb.index, rb.bitPosition, rb.numBytesLoaded)
     if rb.index >= rb.numBytesLoaded {
         return 0, errors.New("Index is out of bound.")
     }
@@ -68,13 +103,14 @@ func (rb *ReadBuffer) Peek() (uint64, error) {
         indexEnd = rb.numBytesLoaded
     }
 
-    return BytesToUint64(rb.buf[rb.index:indexEnd], rb.bitPosition), nil
+    return BytesToUint64WithBitReversal(rb.buf[rb.index:indexEnd], rb.bitPosition), nil
 }
 
 
 func (rb *ReadBuffer) Forward(n uint) error {
     bitIndex := rb.index * 8 + rb.bitPosition + int(n)
-    if bitIndex > rb.numBytesLoaded {
+    fmt.Printf("RB.Forward() Before %d %d, After %d %d\n", rb.index, rb.bitPosition, int(bitIndex/8), int(bitIndex%8))
+    if bitIndex > rb.numBytesLoaded * 8 {
         return errors.New("Number of bits to forward is too large: cannot forward to a position after the end of the buffer.")
     }
     rb.index = int(bitIndex / 8)
@@ -83,6 +119,7 @@ func (rb *ReadBuffer) Forward(n uint) error {
 }
 
 
+/*
 func (rb *ReadBuffer) Rewind(n uint) error {
     bitIndex := rb.index * 8 + rb.bitPosition - int(n)
     if bitIndex < 0 {
@@ -92,7 +129,6 @@ func (rb *ReadBuffer) Rewind(n uint) error {
     rb.bitPosition = bitIndex % 8
     return nil
 }
-
 
 type Prefix struct {
     data uint32
@@ -124,6 +160,7 @@ func (p *Prefix) ReadBit(rb *ReadBuffer) error {
 
     return nil
 }
+*/
 
 func BytesToUint64(array []byte, bitOffset int) uint64{
     var out uint64 = 0
@@ -150,6 +187,45 @@ func BytesToUint64(array []byte, bitOffset int) uint64{
     if len(array) > 8 && bitOffset > 0 {
         out = out | (uint64(array[8]) >> uint(8-bitOffset))
     }
+
+    return out
+}
+
+
+func BytesToUint64WithBitReversal(array []byte, bitOffset int) uint64{
+    var out uint64 = 0
+    if len(array) < 8 {
+        array = append(array, make([]byte, 8-len(array))...)
+    }
+    if len(array) > 9 {
+        panic("Invalid slice size")
+    }
+    if bitOffset > 8 {
+        panic("Invalid bitOffset size")
+    }
+
+    // 'array[0-7]' is [a7...a0][b7...b0] ... [h7...h0]
+    // 'array[8]' is [i7...i0]
+
+    out = (uint64(array[7]) << 56) |
+          (uint64(array[6]) << 48) |
+          (uint64(array[5]) << 40) |
+          (uint64(array[4]) << 32) |
+          (uint64(array[3]) << 24) |
+          (uint64(array[2]) << 16) |
+          (uint64(array[1]) <<  8) |
+          (uint64(array[0]))
+    // 'out' is initialized as [h7...h0] ... [b7...b0][a7...a0]
+
+    out = bits.Reverse64(out)
+    // 'out' turned into [a0...a7][b0...b7] ... [h0...h7]
+
+    if len(array) > 8 && bitOffset > 0 {
+        out = (out << uint(bitOffset)) | (uint64(bits.Reverse8(array[8])) >> uint(8-bitOffset))
+    }
+
+    // example with bitOffset=6
+    // 'out' finally holds [a6...b5][b6...c5] ... [h6...i5]
 
     return out
 }

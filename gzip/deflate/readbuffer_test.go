@@ -2,13 +2,14 @@ package deflate
 
 import (
     "testing"
-    "strings"
+//    "strings"
     "bytes"
     "math/rand"
     "strconv"
     "fmt"
 )
 
+/*
 func TestLoadingBytes(t *testing.T) {
     shakespeare := "To thine own self be true, and it must follow, as the night the day, thou canst not then be false to any man."
     r := strings.NewReader(shakespeare)
@@ -84,6 +85,7 @@ func TestRewind(t *testing.T) {
         t.Errorf("Rewinding beyond the start of the buffer should have failed.")
     }
 }
+*/
 
 func TestBytesToUint64(t *testing.T) {
     rand.Seed(3)

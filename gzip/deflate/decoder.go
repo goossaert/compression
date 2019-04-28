@@ -2,7 +2,11 @@ package deflate
 
 import (
     "io"
-    //"fmt"
+    "math/bits"
+    "fmt"
+    "strconv"
+    "encoding/binary"
+    "errors"
 )
 
 type translationItem struct {
@@ -92,8 +96,10 @@ func generateUint64BitMasks() ([]uint64, []uint64) {
     rightBitMasks[0] = 0
 
     for i := 1; i <= 64; i++ {
-        leftBitMasks[i] = uint64(0xFFFFFFFF) << uint(64-i)
-        rightBitMasks[i] = uint64(0xFFFFFFFF) >> uint(64-i)
+        leftBitMasks[i] = uint64(0xffffffffffffffff) << uint(64-i)
+        rightBitMasks[i] = uint64(0xffffffffffffffff) >> uint(64-i)
+        //fmt.Printf("generateUint64BitMasks() Left  %d %0*s\n", i, 64, strconv.FormatUint(leftBitMasks[i], 2))
+        //fmt.Printf("generateUint64BitMasks() Right %d %0*s\n", i, 64, strconv.FormatUint(rightBitMasks[i], 2))
     }
 
     return leftBitMasks, rightBitMasks
@@ -220,6 +226,8 @@ func NewTranslator(litLenSeq []int, distanceSeq []int) *Translator {
     }
 
     // Generates hash table to translate prefixes to distances
+    // TODO right now it's only a size of 5 bits because I'm testing the fixed encoding mode only,
+    //      but this will have to be adjusted for dynamic mode.
     t.distanceDecodingTables = make(map[int](map[uint64]translationItem))
     t.distanceDecodingTables[5] = make(map[uint64]translationItem)
     distanceCodes := GenerateCanonicalPrefixes(distanceSeq)
@@ -236,22 +244,28 @@ func NewTranslator(litLenSeq []int, distanceSeq []int) *Translator {
 }
 
 
-func (t *Translator) decodePrefix(prefix uint64) (numBitsRead uint, litLen, distance int, err error) {
+func (t *Translator) decodePrefix(prefix uint64) (numBitsRead uint, isLiteral bool, litLen, distance int, err error) {
     numBitsRead = 0
     litLen = 0
     distance = 0
     litLenFound := false
+    isLiteral = false
     for numBits := t.litLenMinBits; numBits <= t.litLenMaxBits; numBits++ {
         maskedPrefix := prefix & t.leftBitMasks[numBits]
         if item, ok := t.litLenDecodingTables[numBits][maskedPrefix]; ok {
-            litLenFound = true
+            fmt.Printf("LitLen %0*s - %d\n", 64, strconv.FormatUint(maskedPrefix, 2), item.code)
             if item.code <= 256 {
                 litLen = item.code
+                isLiteral = true
+                fmt.Printf("  => Literal '%s'\n", string(litLen))
             } else {
-                extraBits := int((prefix >> uint(64 - numBits - item.numExtraBits)) & t.rightBitMasks[item.numExtraBits])
+                extraBits := int(bits.Reverse64(prefix << uint(numBits)) & t.rightBitMasks[item.numExtraBits])
                 litLen = item.minRange + extraBits
+                fmt.Printf("  => %0*s\n", 64, strconv.FormatUint(uint64(extraBits), 2))
+                fmt.Printf("  => Length %d\n", litLen)
             }
             numBitsRead += uint(numBits + item.numExtraBits)
+            litLenFound = true
             break
         }
     }
@@ -260,8 +274,8 @@ func (t *Translator) decodePrefix(prefix uint64) (numBitsRead uint, litLen, dist
         // Invalid input data
     }
 
-    if litLen <= 256 {
-        return numBitsRead, litLen, 0, nil
+    if isLiteral {
+        return numBitsRead, isLiteral, litLen, 0, nil
     }
 
     prefix = prefix << numBitsRead
@@ -269,10 +283,13 @@ func (t *Translator) decodePrefix(prefix uint64) (numBitsRead uint, litLen, dist
     for numBits := t.distanceMinBits; numBits <= t.distanceMaxBits; numBits++ {
         maskedPrefix := prefix & t.leftBitMasks[numBits]
         if item, ok := t.distanceDecodingTables[numBits][maskedPrefix]; ok {
-            distanceFound = true
-            extraBits := int((prefix >> uint(64 - numBits - item.numExtraBits)) & t.rightBitMasks[item.numExtraBits])
+            extraBits := int((bits.Reverse64(prefix) >> uint(numBits)) & t.rightBitMasks[item.numExtraBits])
             distance = item.minRange + extraBits
             numBitsRead += uint(numBits + item.numExtraBits)
+            fmt.Printf("Distance %0*s\n", 64, strconv.FormatUint(maskedPrefix, 2))
+            fmt.Printf("  => %0*s\n", 64, strconv.FormatUint(uint64(extraBits), 2))
+            fmt.Printf("  => %d\n", distance)
+            distanceFound = true
             break
         }
     }
@@ -281,14 +298,42 @@ func (t *Translator) decodePrefix(prefix uint64) (numBitsRead uint, litLen, dist
         // Invalid input data
     }
 
-    return numBitsRead, litLen, distance, nil
+    return numBitsRead, isLiteral, litLen, distance, nil
 }
 
 
-func DecodeStream(reader io.Reader, writer io.Writer) {
+func copyBytes(wb *WriteBuffer, rb *ReadBuffer, n int) error {
+    i := 0
+    for i < n {
+        step := 1024
+        if i + step > n {
+            step = n - i
+        }
+        data, numBytesRead, err := rb.ReadAlignedBytes(step)
+        if err != nil {
+            return err
+        }
 
-    rb := NewReadBuffer(reader, 4096)
+        wb.WriteBytes(data)
+        i += numBytesRead
+    }
+    return nil
+}
+
+
+//func DecodeStream(reader io.Reader, writer io.Writer) error {
+func DecodeStream(rb *ReadBuffer, writer io.Writer) error {
+
+    fmt.Printf("DecodeStream()\n");
+
+    //rb := NewReadBuffer(reader, 4096)
     wb := NewWriteBuffer(writer, 32768)
+
+    if rb.BitsLeftToRead() < 64 {
+        if err := rb.LoadMoreBytes(); err != nil {
+            return err
+        }
+    }
 
     var prefix uint64
     var err error
@@ -298,17 +343,41 @@ func DecodeStream(reader io.Reader, writer io.Writer) {
     for !isLastBlock {
         // Read Deflate block header
         if prefix, err = rb.Peek(); err != nil {
-            //
+            return err
         }
         if int(prefix >> 63) == 1 {
             isLastBlock = true
         }
-        var compressionMode int = int(prefix >> 61) & 0x3
+        // According to RFC 1951, "Data elements other than Huffman codes are
+        // packed starting with the least-significant bit of the data element".
+        // Because Peek() reverses the bits in the bytes, here the two bits of
+        // the compression mode need to be reversed again.
+        // The line below turns [b63 b62 b61 ... b2 b1 b0] into [0 0 0 ... b61 b62]
+        var compressionMode int = int(prefix >> 62) & 0x1 | int(prefix >> 60) & 0x2
         rb.Forward(3)
+
+        fmt.Printf("Last block: %v, compression mode: %d\n", isLastBlock, compressionMode)
 
         // Decodes data based on compression mode
         if compressionMode == DeflateNoCompression {
-            // 
+            // From RFC 1951, 3.2.4. "Any bits of input up to
+            // the next byte boundary are ignored."
+            rb.Forward(uint(8 - rb.bitPosition))
+
+            uncompressedHeader, _, err := rb.ReadAlignedBytes(4)
+            if err != nil {
+                return err
+            }
+
+            length := binary.LittleEndian.Uint16(uncompressedHeader[0:2])
+            lengthOneComplement := binary.LittleEndian.Uint16(uncompressedHeader[2:4])
+            if length != ^lengthOneComplement {
+                return errors.New("Found invalid length of block\n")
+            }
+
+            if err := copyBytes(wb, rb, int(length)); err != nil {
+                return err
+            }
         } else if compressionMode == DeflateReserved {
             //
         } else {
@@ -325,32 +394,35 @@ func DecodeStream(reader io.Reader, writer io.Writer) {
             for hasMoreData {
                 if rb.BitsLeftToRead() < 64 {
                     if err = rb.LoadMoreBytes(); err != nil {
-                        //
+                        return err
                     }
                 }
 
                 if prefix, err = rb.Peek(); err != nil {
-                    //
+                    return err
                 }
 
-                numBitsRead, litLen, distance, err := translator.decodePrefix(prefix)
+                numBitsRead, isLiteral, litLen, distance, err := translator.decodePrefix(prefix)
                 if err != nil {
-                    //
+                    return err
                 }
 
-                if litLen == 256 {
-                    hasMoreData = false
-                } else if litLen < 256 {
-                    wb.WriteByte(byte(litLen))
+                if isLiteral {
+                    if litLen == 256 {
+                        hasMoreData = false
+                    } else {
+                        wb.WriteByte(byte(litLen))
+                    }
                 } else {
-                    wb.RepeatBytes(distance, litLen)
+                    wb.RepeatBytes(litLen, distance)
                 }
 
                 rb.Forward(numBitsRead)
             }
-
-            wb.Flush()
         }
     }
+
+    wb.Flush()
+    return nil
 }
 
